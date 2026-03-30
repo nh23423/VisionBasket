@@ -7,29 +7,28 @@ from models import StartUploadResponse
 class UploadVideo:
     
     s3 = None 
+    s3_browser = None
     
     def __init__(self):
+        base_kwargs = {
+            'aws_access_key_id': Config.S3_KEY,
+            'aws_secret_access_key': Config.S3_SECRET,
+            'region_name': Config.S3_REGION,
+        }
         
-        self.s3 = boto3.client(
-            's3',
-            aws_access_key_id=Config.S3_KEY,
-            aws_secret_access_key=Config.S3_SECRET,
-            region_name=Config.S3_REGION,
-            endpoint_url=Config.S3_ENDPOINT
-        )
+        s3_kwargs = base_kwargs.copy()
+        if Config.S3_ENDPOINT:
+            s3_kwargs['endpoint_url'] = Config.S3_ENDPOINT
+        self.s3 = boto3.client('s3', **s3_kwargs)
         
-        self.s3_browser = boto3.client(
-            's3',
-            aws_access_key_id=Config.S3_KEY,
-            aws_secret_access_key=Config.S3_SECRET,
-            region_name=Config.S3_REGION,
-            endpoint_url=Config.S3_PUBLIC_URL
-        )
+        browser_kwargs = base_kwargs.copy()
+        if Config.S3_PUBLIC_URL:
+            browser_kwargs['endpoint_url'] = Config.S3_PUBLIC_URL
+        self.s3_browser = boto3.client('s3', **browser_kwargs)
         
     def get_presigned_urls(self, key:str, content_type:str, file_size: int, expires=3600, chunk_size = 10 * 1024**2) -> StartUploadResponse:
         chunks = math.ceil(file_size / chunk_size)
         load = {
-            "ACL": "public-read",
             "Bucket": Config.BUCKET_NAME,
             "Key": key,
             "ContentType": content_type,
@@ -87,6 +86,7 @@ class UploadVideo:
         )
     
     def _fix_url(self, url: str) -> str:
-        if Config.S3_ENDPOINT != Config.S3_PUBLIC_URL:
+
+        if Config.S3_ENDPOINT and Config.S3_PUBLIC_URL and Config.S3_ENDPOINT != Config.S3_PUBLIC_URL:
             return url.replace(Config.S3_ENDPOINT, Config.S3_PUBLIC_URL)
         return url

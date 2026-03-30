@@ -57,7 +57,12 @@ DEST = [
     [1476, 701], # paint bottom-left (R)
 ]
 
-DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'mps')
+if torch.cuda.is_available():
+    DEVICE = torch.device('cuda')
+elif torch.backends.mps.is_available():
+    DEVICE = torch.device('mps')
+else:
+    DEVICE = torch.device('cpu')
 if DEVICE.type == 'cuda':
     torch.autocast(device_type="cuda", dtype=torch.float16).__enter__()
 

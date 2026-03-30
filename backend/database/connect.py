@@ -4,11 +4,14 @@ from sqlalchemy.orm import sessionmaker,Session
 from database.table import Base
 import os
 
+DB_USER = os.getenv("POSTGRES_USER", "tracker")
+DB_PASS = os.getenv("POSTGRES_PASSWORD", "tracker_pass")
+DB_NAME = os.getenv("POSTGRES_DB", "tracking")
 DB_HOST = os.getenv("POSTGRES_HOST", "127.0.0.1")
-DB_PORT = os.getenv("POSTGRES_PORT", "5435")
+DB_PORT = os.getenv("POSTGRES_PORT", "5432")
 
-ASYNC_DATABASE_URL = f"postgresql+asyncpg://tracker:tracker_pass@{DB_HOST}:{DB_PORT}/tracking"
-SYNC_DATABASE_URL  = f"postgresql://tracker:tracker_pass@{DB_HOST}:{DB_PORT}/tracking"
+ASYNC_DATABASE_URL = f"postgresql+asyncpg://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+SYNC_DATABASE_URL  = f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
 async_engine = create_async_engine(
     ASYNC_DATABASE_URL,
