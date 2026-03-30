@@ -1,0 +1,114 @@
+version: '3.8'
+
+services:
+
+  redis:
+    image: redis
+    platform: linux/amd64
+    ports:
+      - "6379:6379"
+
+  # LOCAL S3 STORAGE (MinIO)
+  minio:
+    image: minio/minio:latest
+    container_name: local-s3-storage
+    ports:
+      - "9000:9000" # API Port (boto3 connects here)
+      - "9001:9001" # Web Console (You view buckets here)
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_API_CORS_ALLOW_ORIGIN: "*"
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+
+  db:
+    image: postgres:16
+    container_name: tracking_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tracker
+      POSTGRES_PASSWORD: tracker_pass
+      POSTGRES_DB: tracking
+    ports:
+      - "5435:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+  
+  api:
+    container_name: tracking_api
+    build: .
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0 
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=tracker
+      - POSTGRES_PASSWORD=tracker_pass
+      - POSTGRES_DB=tracking
+      - AWS_ACCESS_KEY=minioadmin
+      - AWS_SECRET_KEY=minioadmin
+      - S3_ENDPOINT_URL=http://minio:9000
+      - S3_PUBLIC_URL=http://localhost:9000
+      - AWS_REGION=eu-west-2
+      - S3_BUCKET_NAME=my-videos
+    depends_on:
+      - redis 
+      - db
+      - minio
+ 
+  celery_worker:
+    container_name: celery_worker
+    build: .
+    command: celery -A celery_worker worker -l INFO --pool=solo
+    volumes:
+      - .:/app
+      - video_scratch_space:/tmp/video_scratch
+    shm_size: '2gb' 
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0 
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=tracker
+      - POSTGRES_PASSWORD=tracker_pass
+      - POSTGRES_DB=tracking
+      - AWS_ACCESS_KEY=minioadmin
+      - AWS_SECRET_KEY=minioadmin
+      - S3_ENDPOINT_URL=http://minio:9000
+      - S3_PUBLIC_URL=http://localhost:9000
+      - AWS_REGION=eu-west-2
+      - S3_BUCKET_NAME=my-videos
+    depends_on:
+      - redis 
+      - db
+      - minio
+
+  # QUEUE MONITORING
+  flower:
+    container_name: flower
+    build: . 
+    command: celery -A celery_worker flower --port=5555
+    ports:
+      - "5556:5555"
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+    depends_on:
+       - redis 
+       - celery_worker
+
+  redis-commander:
+    image: rediscommander/redis-commander
+    ports:
+      - "8081:8081"
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+
+volumes:
+  postgres_data:
+  minio_data:
+  video_scratch_space:
