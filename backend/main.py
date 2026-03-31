@@ -40,10 +40,16 @@ DEST = [
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.s3_uploader = UploadVideo()
+    
+    # We only CHECK if it exists. We do NOT try to create it.
     try:
         app.state.s3_uploader.s3.head_bucket(Bucket=Config.BUCKET_NAME)
-    except:
-        app.state.s3_uploader.s3.create_bucket(Bucket=Config.BUCKET_NAME)
+        print(f"--- S3 Connection Verified: {Config.BUCKET_NAME} is ready ---")
+    except Exception as e:
+        print(f"--- S3 WARNING: Could not verify bucket {Config.BUCKET_NAME} ---")
+        print(f"Error: {str(e)}")
+        # We don't crash the app here, just in case it's a permission quirk.
+        
     await init_db()
     yield
     await async_engine.dispose()

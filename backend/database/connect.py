@@ -3,6 +3,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker,Session
 from database.table import Base
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 DB_USER = os.getenv("POSTGRES_USER", "tracker")
 DB_PASS = os.getenv("POSTGRES_PASSWORD", "tracker_pass")
