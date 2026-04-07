@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy import select, delete, update, func
 from database.table import FrameDetection
+from helper import iou_box
 
 def get_detection_by_frame(db: Session, task_id: str, frame_id: int) -> FrameDetection | None:
     """Fetches a single frame's detections synchronously."""
@@ -86,4 +87,34 @@ def swap_ids_from_frame(db: Session, task_id: str, id1: int, id2: int, start_fra
         if updated:
             flag_modified(row, "detections")
             
+    db.commit()
+
+def update_manual_track_with_iou(db, task_id: str, track_id: int, frame_id: int, bbox: list, mx: float, my: float, class_id: int = 0, iou_threshold: float = 0.5):
+    row = db.query(FrameDetection).filter(
+        FrameDetection.task_id == task_id, 
+        FrameDetection.frame_id == frame_id
+    ).first()
+
+    if not row:
+        return
+
+    cleaned_dets = [
+        d for d in row.detections 
+        if d.get("track_id") != track_id and iou_box(bbox, [d["x1"], d["y1"], d["x2"], d["y2"]]) < iou_threshold
+    ]
+
+    cleaned_dets.append({
+        "track_id": int(track_id), 
+        "x1": float(bbox[0]), 
+        "y1": float(bbox[1]), 
+        "x2": float(bbox[2]), 
+        "y2": float(bbox[3]), 
+        "mx": float(mx), 
+        "my": float(my), 
+        "conf": 1.0, 
+        "class_id": int(class_id)
+    })
+
+    row.detections = cleaned_dets
+    
     db.commit()

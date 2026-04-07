@@ -46,7 +46,13 @@ class SwitchRangeCorrection(BaseModel):
     start_state: List[PlayerState] = Field(..., max_length=2, min_length=2)
     end_state: List[PlayerState] = Field(..., max_length=2, min_length=2)
 
+class TrackCorrection(BaseModel):
+    action: Literal["TRACK"]
+    trackId: int
+    frames: List[int]
+    bboxes: List[List[float]]
+
 class BatchCorrectionRequest(BaseModel):
     task_id: str
     points: List[Tuple[float, float]]
-    corrections: List[Union[SwitchRangeCorrection, SingleCorrection]]
+    corrections: List[Union[SwitchRangeCorrection, SingleCorrection,TrackCorrection]]

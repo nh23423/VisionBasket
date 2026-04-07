@@ -8,7 +8,7 @@ import redis
 from pathlib import Path
 from collections import defaultdict
 from celery import Celery
-from helper import homography, process_batch_detections, assign_state, find_switch_point, is_fully_inframe, get_crop_frame_coords, reid_score_match
+from helper import homography, process_batch_detections, assign_state, find_switch_point, is_fully_inframe, get_crop_frame_coords, reid_score_match, iou_box
 from track import ObjectTracker
 from boxmot import BotSort
 from rfdetr import RFDETRMedium
@@ -68,11 +68,11 @@ if DEVICE.type == 'cuda':
 
 # Object Detector Initialization
 RFDETR_CHECKPOINT = Config.WEIGHTS_PATH
-model = RFDETRMedium(pretrain_weights=RFDETR_CHECKPOINT)
-try:
-    model.optimize_for_inference(batch_size=8)
-except AttributeError:
-    pass
+model = None
+# try:
+#     model.optimize_for_inference(batch_size=8)
+# except AttributeError:
+#     pass
 
 reid_model = ReIDPredictor(DEVICE)
 print("Models Ready.")
@@ -142,6 +142,17 @@ def rep_detections(batch_data: list[dict]):
  
 @app.task(name="execute_tracking_pipeline", bind=True)
 def execute_tracking_pipeline(self, task_id: str, pts: list):
+    global model 
+    
+    if model is None:
+        print("Loading RF-DETR model...")
+        model = RFDETRMedium(pretrain_weights=RFDETR_CHECKPOINT)
+    
+    try:
+        model.optimize_for_inference(batch_size=8)
+    except AttributeError:
+        pass
+    
     H = homography(pts, DEST)
     s3_key = f"{task_id}.mp4"
     local_input_path = str(TEMP_DISK_FOLDER / s3_key)
@@ -260,6 +271,21 @@ def execute_corrections_task(self, task_id: str, pts: list, corrections: list):
             deleted_ids = {c["track_id"] for c in corrections if c["action"] == "DELETE"}
             if deleted_ids:
                 crud_sync.delete_tracks_bulk(db, task_id, list(deleted_ids))
+                
+            track_corrections = [c for c in corrections if c["action"] == "TRACK"]
+            for tc in track_corrections:
+                t_id, f_list, b_list = tc["trackId"], tc["frames"], tc["bboxes"]
+                for i, f_id in enumerate(f_list):
+                    x1, y1, x2, y2 = b_list[i]
+                    
+                    px, py = (x1 + x2) / 2, y2 
+                    src_pt = np.array([[[px, py]]], dtype=np.float32)
+                    dst_pt = cv2.perspectiveTransform(src_pt, H)
+                    mx, my = float(dst_pt[0][0][0]), float(dst_pt[0][0][1])
+
+                    crud_sync.update_manual_track_with_iou(
+                        db, task_id, t_id, f_id, [x1, y1, x2, y2], mx, my
+                    )
             
             range_corrections = [c for c in corrections if c["action"] == "SWITCH"]
             
