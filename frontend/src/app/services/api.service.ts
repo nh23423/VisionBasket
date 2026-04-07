@@ -30,16 +30,23 @@ export interface SwitchRangeCorrection {
     end_state: [PlayerState, PlayerState];
 }
 
+export interface AddTrackCorrection {
+    action: "TRACK";
+    trackId: number;
+    bboxe: number[][];
+    frames: number[];
+}
+
 export type SingleCorrection = {
     frame_idx: number;
     track_id: number;
-    action: "TRACK" | "DELETE";
+    action: "DELETE";
 };
 
 export type BatchCorrectionRequest = {
     task_id: string;
     points: [number, number][];
-    corrections: (SingleCorrection | SwitchRangeCorrection)[];
+    corrections: (SingleCorrection | SwitchRangeCorrection | AddTrackCorrection)[];
 };
 
 export type ProcessingStatus = {

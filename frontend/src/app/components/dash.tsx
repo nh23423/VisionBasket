@@ -2,9 +2,11 @@
 
 import { useState, useMemo, useEffect, useRef } from "react";
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
-// 1. Swap the import
 import simpleheat from 'simpleheat';
 
+const SpeedIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>;
+const DistanceIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s-8-4.5-8-11.8A8 8 0 0 1 12 2a8 8 0 0 1 8 8.2c0 7.3-8 11.8-8 11.8z"/><circle cx="12" cy="10" r="3"/></svg>;
+const ChartIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>;
 export default function Dashboard ({
     frameDataRef,
     hiddenIds,
@@ -75,6 +77,9 @@ export default function Dashboard ({
         return data;
     }, [dashboardId, status, processingProgress, frameDataRef, fpsRef]);
 
+    const topSpeed = chartData.length > 0 ? Math.max(...chartData.map(d => d.speed)).toFixed(1) : "0.0";
+    const totalDistance = chartData.length > 0 ? chartData[chartData.length - 1].distance.toFixed(1) : "0.0";
+
 
     useEffect(() => {
         if (imageRef.current && imageRef.current.complete) {
@@ -114,91 +119,118 @@ export default function Dashboard ({
         heatInstanceRef.current.radius(25, 15); 
         heatInstanceRef.current.draw();
 
-    }, [chartData, isCourtLoaded]);
+    }, [chartData, isCourtLoaded, dashboardId]);
 
     return(
-        <div className="bg-white rounded-xl shadow-lg border p-6 min-h-[65vh]">
-            <header className="mb-8 border-b pb-4">
-                <h3 className="text-2xl font-bold text-gray-800">Player Analytics</h3>
-            </header>
-        
-            <div className="flex gap-8">
-                <div className="w-64 flex flex-col gap-2">
-                    <h4 className="font-bold text-xs uppercase tracking-wider text-gray-500 mb-2">Select Target</h4>
-                    <div className="flex flex-wrap gap-2 max-h-[50vh] overflow-y-auto">
-                        {availableIds.map(id => (
-                            <button key={id} onClick={() => setDashboardId(id)} className={`px-4 py-2 rounded-lg font-bold border-2 transition-all ${dashboardId === id ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-600'}`}>
+        <div className="flex flex-col h-full gap-6 max-h-[75vh] overflow-y-auto pr-2 pb-4">
+            
+            {/* TOP CONTROL BAR: Target Selection & Hero Metrics */}
+            <div className="bg-white rounded-2xl shadow-sm border p-5 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                
+                {/* Target Selector */}
+                <div className="flex-1 w-full">
+                    <h4 className="font-bold text-xs uppercase tracking-wider text-gray-500 mb-3">Target Profile</h4>
+                    <div className="flex flex-wrap gap-2">
+                        {availableIds.length === 0 ? (
+                            <span className="text-sm text-gray-400 italic">No targets available.</span>
+                        ) : availableIds.map(id => (
+                            <button 
+                                key={id} 
+                                onClick={() => setDashboardId(id)} 
+                                className={`px-4 py-2 rounded-xl font-bold text-sm transition-all border-2 shadow-sm ${dashboardId === id ? 'border-blue-600 bg-blue-600 text-white shadow-blue-200' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'}`}
+                            >
                                 {idLabels[id] || `ID ${id}`}
                             </button>
                         ))}
                     </div>
                 </div>
-            
-                <div className="flex-1 space-y-8">
-                    {!dashboardId ? (
-                        <div className="h-64 flex items-center justify-center border-2 border-dashed rounded-2xl bg-gray-50 text-gray-400">Select a Player ID</div>
-                    ) : (
-                    <>
-                        {/* Speed Chart */}
-                        <div className="bg-white border rounded-xl p-6 shadow-sm">
-                            <h4 className="font-bold text-gray-800 mb-4">Estimated Speed</h4>
-                            <div className="h-64 w-full">
-                                <ResponsiveContainer>
-                                    <AreaChart data={chartData} margin={{ top: 10, right: 30, left: 20, bottom: 20 }}>
-                                        <defs>
-                                            <linearGradient id="colorSpeed" x1="0" y1="0" x2="0" y2="1">
-                                                <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
-                                                <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                                            </linearGradient>
-                                        </defs>
-                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                                        <XAxis dataKey="time" type="number" tick={{fill: '#9ca3af', fontSize: 12}} tickLine={false} axisLine={false} label={{ value: 'Time (s)', position: 'bottom', offset: 0, fill: '#6b7280', fontSize: 12, fontWeight: 600 }} />
-                                        <YAxis tick={{fill: '#9ca3af', fontSize: 12}} tickLine={false} axisLine={false} label={{ value: 'Speed (m/s)',angle: -90,  position: 'insideLeft', offset: -10, fill: '#6b7280', fontSize: 12, fontWeight: 600 }} />
-                                        <RechartsTooltip />
-                                        <Area type="monotone" dataKey="speed" stroke="#3b82f6" strokeWidth={3} fill="url(#colorSpeed)" />
-                                    </AreaChart>
-                                </ResponsiveContainer>
-                            </div>
-                        </div>
-            
-                        {/* Distance Chart */}
-                        <div className="bg-white border rounded-xl p-6 shadow-sm">
-                            <h4 className="font-bold text-gray-800 mb-4">Cumulative Distance</h4>
-                            <div className="h-64 w-full">
-                                <ResponsiveContainer>
-                                    <LineChart data={chartData} margin={{ top: 10, right: 30, left: 20, bottom: 20 }}>
-                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                                        <XAxis dataKey="time" type="number" tick={{fill: '#9ca3af', fontSize: 12}} tickLine={false} axisLine={false} label={{ value: 'Time (s)', position: 'bottom', offset: 0, fill: '#6b7280', fontSize: 12, fontWeight: 600 }} />
-                                        <YAxis tick={{fill: '#9ca3af', fontSize: 12}} tickLine={false} axisLine={false} label={{ value: 'Distance (m)', angle: -90, position: 'insideLeft', offset: -10, fill: '#6b7280', fontSize: 12, fontWeight: 600 }} />
-                                        <RechartsTooltip />
-                                        <Line type="monotone" dataKey="distance" stroke="#10b981" strokeWidth={3} dot={false} />
-                                    </LineChart>
-                                </ResponsiveContainer>
-                            </div>
-                        </div>
 
-                        <div className="bg-white border rounded-xl p-6 shadow-sm">
-                            <h4 className="font-bold text-gray-800 mb-4">Player HeatMap</h4>
-                            
-                            <div ref={wrapperRef} className="relative w-full aspect-[1740/928] mx-auto overflow-hidden rounded-lg border border-gray-200">
-                                <img 
-                                    ref={imageRef} 
-                                    src="/mpl_nba_court.png" 
-                                    alt="Basketball Court" 
-                                    className="w-full h-full object-fill absolute inset-0 z-0"
-                                    onLoad={() => setIsCourtLoaded(true)} 
-                                />
-                                
-                                <canvas 
-                                    ref={canvasRef} 
-                                    className="absolute inset-0 z-10 pointer-events-none w-full h-full" 
-                                />
+                {dashboardId && (
+                    <div className="flex gap-4 md:border-l md:pl-6 w-full md:w-auto">
+                        <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 flex-1 md:w-40 flex flex-col justify-center">
+                            <div className="flex items-center gap-2 text-blue-600 mb-1">
+                                <SpeedIcon />
+                                <span className="font-bold text-xs uppercase tracking-wider">Top Speed</span>
                             </div>
+                            <div className="text-2xl font-black text-gray-800">{topSpeed} <span className="text-sm text-gray-500 font-bold">m/s</span></div>
                         </div>
-                    </>
-                    )}
-                </div>
+                        <div className="bg-green-50 border border-green-100 rounded-xl p-4 flex-1 md:w-40 flex flex-col justify-center">
+                            <div className="flex items-center gap-2 text-green-600 mb-1">
+                                <DistanceIcon />
+                                <span className="font-bold text-xs uppercase tracking-wider">Distance</span>
+                            </div>
+                            <div className="text-2xl font-black text-gray-800">{totalDistance} <span className="text-sm text-gray-500 font-bold">m</span></div>
+                        </div>
+                    </div>
+                )}
             </div>
+        
+            {/* CHARTS GRID */}
+            {!dashboardId ? (
+                <div className="flex-1 bg-white border-2 border-dashed border-gray-200 rounded-2xl flex flex-col items-center justify-center min-h-[400px] text-gray-400">
+                    <ChartIcon />
+                    <span className="mt-4 font-bold text-lg">Select a player to view analytics</span>
+                </div>
+            ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    
+                    {/* Speed Chart */}
+                    <div className="bg-white border rounded-2xl p-6 shadow-sm">
+                        <h4 className="font-bold text-gray-800 mb-6">Velocity Profile</h4>
+                        <div className="h-56 w-full">
+                            <ResponsiveContainer>
+                                <AreaChart data={chartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                                    <defs>
+                                        <linearGradient id="colorSpeed" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                                            <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                                        </linearGradient>
+                                    </defs>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
+                                    <XAxis dataKey="time" type="number" tick={{fill: '#9ca3af', fontSize: 11}} tickLine={false} axisLine={false} />
+                                    <YAxis tick={{fill: '#9ca3af', fontSize: 11}} tickLine={false} axisLine={false} />
+                                    <RechartsTooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                                    <Area type="monotone" dataKey="speed" stroke="#3b82f6" strokeWidth={3} fill="url(#colorSpeed)" />
+                                </AreaChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </div>
+        
+                    {/* Distance Chart */}
+                    <div className="bg-white border rounded-2xl p-6 shadow-sm">
+                        <h4 className="font-bold text-gray-800 mb-6">Cumulative Distance</h4>
+                        <div className="h-56 w-full">
+                            <ResponsiveContainer>
+                                <LineChart data={chartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
+                                    <XAxis dataKey="time" type="number" tick={{fill: '#9ca3af', fontSize: 11}} tickLine={false} axisLine={false} />
+                                    <YAxis tick={{fill: '#9ca3af', fontSize: 11}} tickLine={false} axisLine={false} />
+                                    <RechartsTooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                                    <Line type="monotone" dataKey="distance" stroke="#10b981" strokeWidth={3} dot={false} />
+                                </LineChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </div>
+
+                    {/* Heatmap (Spans full width on bottom) */}
+                    <div className="lg:col-span-2 bg-white border rounded-2xl p-6 shadow-sm">
+                        <h4 className="font-bold text-gray-800 mb-4">Positional Heatmap</h4>
+                        <div ref={wrapperRef} className="relative w-full aspect-[1740/928] mx-auto overflow-hidden rounded-xl border border-gray-200 shadow-inner bg-gray-50">
+                            <img 
+                                ref={imageRef} 
+                                src="/mpl_nba_court.png" 
+                                alt="Basketball Court" 
+                                className="w-full h-full object-fill absolute inset-0 z-0 opacity-80 mix-blend-multiply"
+                                onLoad={() => setIsCourtLoaded(true)} 
+                            />
+                            <canvas 
+                                ref={canvasRef} 
+                                className="absolute inset-0 z-10 pointer-events-none w-full h-full" 
+                            />
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
