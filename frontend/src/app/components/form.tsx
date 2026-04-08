@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { SubmitHandler, useForm } from "react-hook-form";
 import { z } from "zod";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { APIService, Detection, SingleCorrection, PlayerState, SwitchRangeCorrection} from "../services/api.service";
+import { APIService, Detection, SingleCorrection, PlayerState, SwitchRangeCorrection, MergeCorrection} from "../services/api.service";
 import VideoPlayer from './videoplayer';
 import CourtDisplay from "./court";
 import Dashboard from "./dash";
@@ -54,14 +54,14 @@ export default function VideoUploadForm() {
   const [activeTool, setActiveTool] = useState<'select' | 'eraser' | 'switch' | 'track' | null>('select');
   const [firstSelectedId, setFirstSelectedId] = useState<number | null>(null);
   const [idLabels, setIdLabels] = useState<Record<number, string>>({});
-  const [hiddenIds, setHiddenIds] = useState<Set<number>>(new Set());
+  const [hiddenIds, setHiddenIds] = useState<Record<number, number>>({});
   const [renamingId, setRenamingId] = useState<{id: number, x: number, y: number} | null>(null);
   const [fileUploadProgress, setFileUploadProgress] = useState(0);
   const [lastKnownStates, setLastKnownStates] = useState<Map<number, {bbox: number[], mx: float, my: float}>>(new Map());
   const [allSeenIds, setAllSeenIds] = useState<number[]>([]);
   
   // Correction Tracking
-  const [correctionsBatch, setCorrectionsBatch] = useState<(SingleCorrection | SwitchRangeCorrection)[]>([]);
+  const [correctionsBatch, setCorrectionsBatch] = useState<(SingleCorrection | SwitchRangeCorrection | MergeCorrection)[]>([]);
   const [editHistory, setEditHistory] = useState<{frame: number, action: string, target: string}[]>([]);
 
   const [switchPhase, setSwitchPhase] = useState<'idle' | 'select_start' | 'seek_end' | 'select_end'>('idle');
@@ -79,7 +79,7 @@ export default function VideoUploadForm() {
   }>({ step: 'idle', startFrame: null, startBbox: null });
   
   // Manual Tracking State
-  const [activeCustomTrackId, setActiveCustomTrackId] = useState<number>(90000);
+  const [addingTrackId, setAddingTrackId] = useState<number | null>(null);
   const [currentFrame, setCurrentFrame] = useState<number>(0);
   const manualTracksRef = useRef<Map<number, {frame: number, bbox: number[]}[]>>(new Map());
 
@@ -204,8 +204,41 @@ export default function VideoUploadForm() {
             }
         ]);
     }
+  }, [setCorrectionsBatch]); 
 
-}, [setCorrectionsBatch]); 
+  const handleMergeIds = useCallback((oldId: number, newId: number) => {
+    // 1. Update the local data reference for all frames
+    frameDataRef.current.forEach((frameData) => {
+        const detIndex = frameData.detections.findIndex(d => d.id === oldId);
+        if (detIndex !== -1) {
+            const newIdExistsInFrame = frameData.detections.some(d => d.id === newId);
+            if (newIdExistsInFrame) {
+                // If the target ID already exists in this frame, remove the duplicate
+                frameData.detections.splice(detIndex, 1);
+            } else {
+                // Otherwise, rename the detection
+                frameData.detections[detIndex].id = newId;
+            }
+        }
+    });
+
+    setAllSeenIds(prev => {
+        const updated = prev.filter(id => id !== oldId);
+        if (!updated.includes(newId)) updated.push(newId);
+        return updated.sort((a, b) => a - b);
+    });
+
+    setIdLabels(prev => {
+        const newLabels = { ...prev };
+        delete newLabels[oldId]; 
+        return newLabels;
+    });
+
+    setEditHistory(prev => [{ frame: currentFrame, action: 'Track Merged', target: `#${oldId} → #${newId}` }, ...prev]);
+    setCorrectionsBatch(prev => [...prev, { action: "MERGE", source_id: oldId, target_id: newId }]);
+
+    if (videoRef.current) drawRef.current(Math.round(videoRef.current.currentTime * fpsRef.current));
+  }, [currentFrame]);
 
   const renderFrameWithSelection = useCallback((frameIndex: number, overrideId: number | null) => {
     const canvas = canvasRef.current;
@@ -229,7 +262,10 @@ export default function VideoUploadForm() {
     });
 
     frameData.detections.forEach(({ id, bbox, isManualKeyframe, isInterpolated }) => {
-      if (hiddenIds.has(id)) return;
+      const deleteStartFrame = hiddenIds[id];
+      if (deleteStartFrame !== undefined && frameIndex >= deleteStartFrame) {
+          return; // Skip drawing this box
+      }
       const [x1, y1, x2, y2] = bbox;
       
       const isBlockedAnchor = 
@@ -247,6 +283,14 @@ export default function VideoUploadForm() {
       ctx.strokeStyle = isBlockedAnchor ? '#FF0000' : baseColor;
       if (isPending) ctx.setLineDash([5, 5]);
       else ctx.setLineDash([]);
+
+      if (isPending) {
+          ctx.setLineDash([5, 5]);
+          ctx.strokeStyle = '#FF4136'; // Red for pending delete
+      } else {
+          ctx.setLineDash([]);
+          ctx.strokeStyle = baseColor;
+      }
 
       // Highlight selected box with a shadow/glow
       if (isSelected) {
@@ -331,6 +375,13 @@ export default function VideoUploadForm() {
   }, [renamingId]);
 
   useEffect(() => {
+    // Reset the active manual ID when switching tools
+    if (activeTool !== 'track') {
+        setAddingTrackId(null);
+    }
+  }, [activeTool]);
+
+  useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
         const target = e.target as HTMLElement;
         
@@ -385,11 +436,16 @@ export default function VideoUploadForm() {
 
         const currentDetections = frameDataRef.current.get(frameIndex)?.detections ?? [];
         
-        const hits = currentDetections.filter(d => 
-            !hiddenIds.has(d.id) &&
-            x >= d.bbox[0] && x <= d.bbox[2] && 
-            y >= d.bbox[1] && y <= d.bbox[3]
-        );
+        const hits = currentDetections.filter(d => {
+            const deleteFrame = hiddenIds[d.id];
+            const isVisible = deleteFrame === undefined || frameIndex < deleteFrame;
+            
+            return (
+                isVisible &&
+                x >= d.bbox[0] && x <= d.bbox[2] && 
+                y >= d.bbox[1] && y <= d.bbox[3]
+            );
+        });
         
         hits.sort((a, b) => {
             const areaA = (a.bbox[2]-a.bbox[0]) * (a.bbox[3]-a.bbox[1]);
@@ -419,11 +475,25 @@ export default function VideoUploadForm() {
         }
 
         if (activeTool === 'eraser' && clickedId !== null) {
-            setHiddenIds(prev => new Set(prev).add(clickedId));
-            setEditHistory(prev => [{ frame: frameIndex, action: 'Deleted', target: `ID ${clickedId}` }, ...prev]);
-            setCorrectionsBatch(prev => [...prev, { frame_idx: frameIndex, track_id: clickedId, action: "DELETE" }]);
+          const frameIndex = Math.round(videoRef.current!.currentTime * fpsRef.current);
 
-        } else if (activeTool === 'switch' && clickedId !== null) {
+          // Update UI state: Hide this ID ONLY from this frame forward
+          setHiddenIds(prev => ({
+              ...prev,
+              [clickedId]: frameIndex
+          }));
+
+          setEditHistory(prev => [{ 
+              frame: frameIndex, 
+              action: 'Delete (Trailing)', 
+              target: `ID ${clickedId}` 
+          }, ...prev]);
+
+          setCorrectionsBatch(prev => [
+              ...prev, 
+              { frame_idx: frameIndex, track_id: clickedId, action: "DELETE" }
+          ]);
+      } else if (activeTool === 'switch' && clickedId !== null) {
             
             const isBlockedAnchor = 
                 (switchPhase === 'select_start' && switchRangeData.start_state[0]?.track_id === clickedId) ||
@@ -528,10 +598,31 @@ export default function VideoUploadForm() {
         const x1 = Math.min(start.x, end.x); const y1 = Math.min(start.y, end.y);
         const x2 = Math.max(start.x, end.x); const y2 = Math.max(start.y, end.y);
         
+        // Check if the box is a valid size
         if (x2 - x1 > 15 && y2 - y1 > 15) { 
-          handleInterpolate(activeCustomTrackId, frameIndex, [x1, y1, x2, y2]);
-          setEditHistory(prev => [{ frame: frameIndex, action: 'Track Keyframe', target: `ID ${activeCustomTrackId}` }, ...prev]);
-      } 
+            let targetId = addingTrackId;
+
+            // MANDATORY ID CHECK
+            if (targetId === null) {
+                const input = window.prompt("Enter a valid Track ID for this manual track:");
+                const parsed = parseInt(input || "");
+                
+                if (isNaN(parsed)) {
+                    alert("A numeric Track ID is required to create a track.");
+                    drawRef.current(frameIndex); // Redraw to clear the preview box
+                    return;
+                }
+                targetId = parsed;
+                setAddingTrackId(parsed); // Save it for subsequent clicks
+            }
+
+            handleInterpolate(targetId, frameIndex, [x1, y1, x2, y2]);
+            setEditHistory(prev => [{ 
+                frame: frameIndex, 
+                action: 'Track Keyframe', 
+                target: `ID ${targetId}` 
+            }, ...prev]);
+        } 
         drawRef.current(frameIndex);
     };
 
@@ -544,7 +635,7 @@ export default function VideoUploadForm() {
         canvas.removeEventListener('pointermove', onPointerMove);
         canvas.removeEventListener('pointerup', onPointerUp);
     }
-  }, [status, activeTool, switchPhase, switchRangeData, hiddenIds, idLabels, handleInterpolate, correctionsBatch, viewMode, activeCustomTrackId]);
+  }, [status, activeTool, switchPhase, switchRangeData, hiddenIds, idLabels, handleInterpolate, correctionsBatch, viewMode, addingTrackId]);
 
 
 const handleUndo = () => {
@@ -552,7 +643,11 @@ const handleUndo = () => {
     const lastCorrection = correctionsBatch[correctionsBatch.length - 1];
     
     if (lastCorrection.action === 'DELETE') {
-        setHiddenIds(prev => { const n = new Set(prev); n.delete(lastCorrection.track_id); return n; });
+      setHiddenIds(prev => {
+          const next = { ...prev };
+          delete next[lastCorrection.track_id];
+          return next;
+        });
     } else if (lastCorrection.action === 'TRACK') {
         const trackKeyframes = manualTracksRef.current.get(lastCorrection.track_id) || [];
         manualTracksRef.current.set(lastCorrection.track_id, trackKeyframes.filter(k => k.frame !== lastCorrection.frame_idx));
@@ -843,6 +938,7 @@ const handleUndo = () => {
                 fpsRef={fpsRef}
                 status={status}
                 processingProgress={processingProgress}
+                currentFrame={currentFrame}
               />
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -912,16 +1008,24 @@ const handleUndo = () => {
                                 style={{ left: `${renamingId.x}px`, top: `${renamingId.y}px` }}
                               >
                                 <input 
-                                  autoFocus 
-                                  className="text-sm font-bold px-2 py-1 outline-none w-28 text-center" 
-                                  value={idLabels[renamingId.id] || ''} 
-                                  placeholder={`#${renamingId.id}`} 
-                                  onChange={e => setIdLabels(prev => ({...prev, [renamingId.id]: e.target.value}))} 
-                                  onKeyDown={e => {
-                                    e.stopPropagation();
-                                    if (e.key === 'Enter') setRenamingId(null);
-                                  }} 
-                                />
+                                    autoFocus 
+                                    className="text-sm font-bold px-2 py-1 outline-none w-28 text-center" 
+                                    value={idLabels[renamingId.id] || ''} 
+                                    placeholder={`#${renamingId.id}`} 
+                                    onChange={e => setIdLabels(prev => ({...prev, [renamingId.id]: e.target.value}))} 
+                                    onKeyDown={e => {
+                                      e.stopPropagation();
+                                      if (e.key === 'Enter') {
+                                        const typedValue = idLabels[renamingId.id];
+                                        const parsedNum = Number(typedValue);
+                                        if (!isNaN(parsedNum) && parsedNum !== renamingId.id && allSeenIds.includes(parsedNum)) {
+                                            handleMergeIds(renamingId.id, parsedNum);
+                                        } 
+                                        
+                                        setRenamingId(null);
+                                      }
+                                    }} 
+                                  />
                                 <button onClick={() => setRenamingId(null)} className="p-1 bg-green-100 text-green-700 hover:bg-green-200 rounded-md transition">
                                   <CheckIcon />
                                 </button>
@@ -946,8 +1050,12 @@ const handleUndo = () => {
                       {allSeenIds.length === 0 ? (
                           <span className="text-sm text-gray-400 italic">No IDs detected yet...</span>
                       ) : (
-                          allSeenIds
-                              .filter(id => !hiddenIds.has(id))
+                          allSeenIds.filter(id => {
+                                  const deleteFrame = hiddenIds[id];
+                                  // Show the ID in the list if it was never deleted, 
+                                  // or if the video is currently at a frame BEFORE it was deleted
+                                  return deleteFrame === undefined || currentFrame < deleteFrame;
+                              })
                               .map((id) => (
                                   <button
                                       key={id}
@@ -970,18 +1078,22 @@ const handleUndo = () => {
                 <div className="border-2 border-gray-200 bg-white rounded-xl shadow-sm flex flex-col h-full max-h-full overflow-hidden">
                   
                   {activeTool === 'track' && (
-                      <div className="bg-purple-50 p-5 border-b-2 border-purple-100">
+                      <div className="bg-purple-50 p-5 border-b-2 border-purple-100 animate-in slide-in-from-left-2">
                           <p className="text-xs text-purple-700 font-bold uppercase mb-2 tracking-wider">Target Track ID</p>
-                          <div className="flex items-center bg-white px-4 py-3 rounded-lg border shadow-sm focus-within:ring-2 focus-within:ring-purple-500">
+                          <div className={`flex items-center bg-white px-4 py-3 rounded-lg border shadow-sm transition-all focus-within:ring-2 ${addingTrackId === null ? 'border-orange-300 ring-orange-100' : 'focus-within:ring-purple-500'}`}>
                               <span className="font-bold text-gray-400 mr-2 text-xl">#</span>
                               <input 
                                   type="number" 
-                                  value={activeCustomTrackId}
-                                  onChange={(e) => setActiveCustomTrackId(Number(e.target.value))}
+                                  placeholder="Enter ID..."
+                                  value={addingTrackId ?? ''} // Show empty string if null
+                                  onChange={(e) => setAddingTrackId(e.target.value === '' ? null : Number(e.target.value))}
                                   className="font-mono font-bold text-xl text-purple-900 w-full bg-transparent outline-none"
                                   min="0"
                               />
                           </div>
+                          {addingTrackId === null && (
+                              <p className="text-[10px] text-orange-600 mt-2 font-bold uppercase">Required: Enter ID or draw box to prompt</p>
+                          )}
                       </div>
                   )}
                   

@@ -37,6 +37,12 @@ export interface AddTrackCorrection {
     frames: number[];
 }
 
+export interface MergeCorrection {
+    action: "MERGE";
+    source_id: number;
+    target_id: number;
+}
+
 export type SingleCorrection = {
     frame_idx: number;
     track_id: number;
@@ -46,7 +52,7 @@ export type SingleCorrection = {
 export type BatchCorrectionRequest = {
     task_id: string;
     points: [number, number][];
-    corrections: (SingleCorrection | SwitchRangeCorrection | AddTrackCorrection)[];
+    corrections: (SingleCorrection | SwitchRangeCorrection | AddTrackCorrection | MergeCorrection)[];
 };
 
 export type ProcessingStatus = {

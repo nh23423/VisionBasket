@@ -13,7 +13,8 @@ export default function Dashboard ({
     idLabels,
     fpsRef,
     status,
-    processingProgress
+    processingProgress,
+    currentFrame
 }) {
     const [dashboardId, setDashboardId] = useState<number | null>(null);
     const [isCourtLoaded, setIsCourtLoaded] = useState(false);
@@ -26,7 +27,13 @@ export default function Dashboard ({
     const availableIds = useMemo(() => {
         const ids = new Set<number>();
         frameDataRef.current.forEach(fd => fd.detections.forEach(d => {
-            if (!hiddenIds.has(d.id)) ids.add(d.id);
+            const deleteStartFrame = hiddenIds[d.id];
+            const isVisible = deleteStartFrame === undefined || currentFrame < deleteStartFrame;
+
+            if (isVisible) {
+                ids.add(d.id);
+            }
+
         }));
         return Array.from(ids).sort((a, b) => a - b);
     }, [status, processingProgress, hiddenIds, frameDataRef]);
