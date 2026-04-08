@@ -52,7 +52,17 @@ class TrackCorrection(BaseModel):
     frames: List[int]
     bboxes: List[List[float]]
 
+class MergeCorrection(BaseModel):
+    action: Literal["MERGE"]
+    source_id: int
+    target_id: int
+
 class BatchCorrectionRequest(BaseModel):
     task_id: str
     points: List[Tuple[float, float]]
-    corrections: List[Union[SwitchRangeCorrection, SingleCorrection,TrackCorrection]]
+    corrections: List[Union[
+        SwitchRangeCorrection, 
+        SingleCorrection, 
+        TrackCorrection, 
+        MergeCorrection
+    ]]

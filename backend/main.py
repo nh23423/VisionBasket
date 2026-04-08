@@ -11,7 +11,7 @@ from pathlib import Path
 from celery_worker import execute_tracking_pipeline, execute_corrections_task
 from upload import UploadVideo
 from config import Config
-from models import StartUploadRequest, StartUploadResponse, CompleteUploadRequest, CompleteUploadResponse, AnalyseRequest, BatchCorrectionRequest
+from models import StartUploadRequest, StartUploadResponse, CompleteUploadRequest, CompleteUploadResponse, AnalyseRequest,BatchCorrectionRequest
 from database.connect import init_db, async_engine
 from contextlib import asynccontextmanager
 

@@ -68,11 +68,12 @@ if DEVICE.type == 'cuda':
 
 # Object Detector Initialization
 RFDETR_CHECKPOINT = Config.WEIGHTS_PATH
-model = None
-# try:
-#     model.optimize_for_inference(batch_size=8)
-# except AttributeError:
-#     pass
+print("Loading RF-DETR model...")
+model = RFDETRMedium(pretrain_weights=RFDETR_CHECKPOINT)
+try:
+    model.optimize_for_inference(batch_size=8)
+except AttributeError:
+    pass
 
 reid_model = ReIDPredictor(DEVICE)
 print("Models Ready.")
@@ -142,16 +143,6 @@ def rep_detections(batch_data: list[dict]):
  
 @app.task(name="execute_tracking_pipeline", bind=True)
 def execute_tracking_pipeline(self, task_id: str, pts: list):
-    global model 
-    
-    if model is None:
-        print("Loading RF-DETR model...")
-        model = RFDETRMedium(pretrain_weights=RFDETR_CHECKPOINT)
-    
-    try:
-        model.optimize_for_inference(batch_size=8)
-    except AttributeError:
-        pass
     
     H = homography(pts, DEST)
     s3_key = f"{task_id}.mp4"
@@ -268,9 +259,23 @@ def execute_corrections_task(self, task_id: str, pts: list, corrections: list):
         
         with SyncSessionLocal() as db:
             
-            deleted_ids = {c["track_id"] for c in corrections if c["action"] == "DELETE"}
-            if deleted_ids:
-                crud_sync.delete_tracks_bulk(db, task_id, list(deleted_ids))
+            delete_corrections = [c for c in corrections if c["action"] == "DELETE"]
+            for dc in delete_corrections:
+                crud_sync.delete_track_from_frame_forward(
+                    db, 
+                    task_id, 
+                    track_id=dc["track_id"], 
+                    start_frame=dc["frame_idx"]
+                )
+            
+            merge_corrections = [c for c in corrections if c["action"] == "MERGE"]
+            for mc in merge_corrections:
+                crud_sync.merge_track_ids(
+                    db, 
+                    task_id, 
+                    source_id=mc["source_id"], 
+                    target_id=mc["target_id"]
+                )
                 
             track_corrections = [c for c in corrections if c["action"] == "TRACK"]
             for tc in track_corrections:

@@ -52,19 +52,21 @@ def get_detections_in_range(db: Session, task_id: str, start_frame: int, end_fra
         FrameDetection.frame_id <= end_frame
     ).order_by(FrameDetection.frame_id.asc()).all()
 
-def delete_tracks_bulk(db: Session, task_id: str, track_ids: list):
-    for tid in track_ids:
-        stmt = (
-            update(FrameDetection)
-            .where(FrameDetection.task_id == task_id)
-            .values(
-                detections=func.jsonb_path_query_array(
-                    FrameDetection.detections,
-                    f'$[*] ? (@.track_id != {tid})'
-                )
-            )
-        )
-        db.execute(stmt)
+def delete_track_from_frame_forward(db: Session, task_id: str, track_id: int, start_frame: int):
+    rows = db.query(FrameDetection).filter(
+        FrameDetection.task_id == task_id,
+        FrameDetection.frame_id >= start_frame
+    ).all()
+    
+    for row in rows:
+        # Filter out the specific track_id from the detections JSON list
+        original_count = len(row.detections)
+        row.detections = [d for d in row.detections if d.get("track_id") != track_id]
+        
+        # Only flag for update if a detection was actually removed
+        if len(row.detections) < original_count:
+            flag_modified(row, "detections")
+            
     db.commit()
 
 def swap_ids_from_frame(db: Session, task_id: str, id1: int, id2: int, start_frame: int):
@@ -117,4 +119,34 @@ def update_manual_track_with_iou(db, task_id: str, track_id: int, frame_id: int,
 
     row.detections = cleaned_dets
     
+    db.commit()
+
+def merge_track_ids(db: Session, task_id: str, source_id: int, target_id: int):
+    rows = db.query(FrameDetection).filter(
+        FrameDetection.task_id == task_id
+    ).all()
+    
+    for row in rows:
+        updated = False
+        
+        # Check if the target Master ID already exists in this specific frame
+        target_exists = any(d.get("track_id") == target_id for d in row.detections)
+        
+        new_detections = []
+        for det in row.detections:
+            if det.get("track_id") == source_id:
+                if not target_exists:
+                    # Rename the fragment to the master ID
+                    det["track_id"] = target_id
+                    new_detections.append(det)
+                    updated = True
+                else:
+                    updated = True
+            else:
+                new_detections.append(det)
+        
+        if updated:
+            row.detections = new_detections
+            flag_modified(row, "detections")
+            
     db.commit()
