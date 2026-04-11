@@ -8,7 +8,7 @@ import redis
 from pathlib import Path
 from collections import defaultdict
 from celery import Celery
-from helper import homography, process_batch_detections, assign_state, find_switch_point, is_fully_inframe, get_crop_frame_coords, reid_score_match, iou_box
+from helper import homography, process_batch_detections, assign_state, find_switch_point, is_fully_inframe, get_crop_frame_coords, reid_score_match
 from track import ObjectTracker
 from boxmot import BotSort
 from rfdetr import RFDETRMedium
@@ -19,10 +19,14 @@ from database import crud_sync
 from database.connect import SyncSessionLocal
 from config import Config
 from database.table import FrameDetection
+import msgpack
+import httpx
+import asyncio
 
 REDIS_URL = Config.REDIS_URL
 app = Celery("task", broker=REDIS_URL, backend=REDIS_URL)
 redis_client = redis.from_url(REDIS_URL)
+client = httpx.AsyncClient(timeout=20.0)
 
 # The Scratch Space
 TEMP_DISK_FOLDER = Path("/tmp/video_scratch")
@@ -130,16 +134,36 @@ def track_processing(tracks,id_mapping,active_tracks,width,height,idx,frame):
 
 def publish_ws(task_id, data):
     redis_client.publish(f"ws_{task_id}", json.dumps(data))
+
+async def get_detection_res(batch):
+    frame_bytes = []
+    for f in batch:
+        img_encode = cv2.imencode('.jpg',f)[1]
+        frame_bytes.append(img_encode.tobytes())
+    
+    payload = msgpack.packb({"frames": frame_bytes, "confidence_threshold": 0.5})
+    
+    try:
+        response = await client.post(
+            f"http://{Config.GPU_SERVER_IP}/predictions", 
+            content=payload,
+            headers={"Content-Type": "application/msgpack"}
+        )
+        
+        response.raise_for_status()
+        return response.json().get("detections", [])
+        
+    except httpx.HTTPStatusError as e:
+        print(f"GPU Server Error ({e.response.status_code}): {e.response.text}")
+        return []
+    except Exception as e:
+        print(f"Connection Error: {e}")
+        return []
     
 @app.task(name="batch_insertion", ignore_result=True)
 def insert_detections(batch_data: list[dict]):
     with SyncSessionLocal() as db:
         crud_sync.insert_bulk(db, batch_data)
-
-@app.task(name="replace_batch", ignore_result=True)
-def rep_detections(batch_data: list[dict]):
-    with SyncSessionLocal() as db:
-        crud_sync.replace_bulk_frames(db, batch_data)
  
 @app.task(name="execute_tracking_pipeline", bind=True)
 def execute_tracking_pipeline(self, task_id: str, pts: list):
@@ -170,22 +194,28 @@ def execute_tracking_pipeline(self, task_id: str, pts: list):
                     idx += 1
                     frame_buffer.append(frame)
                     idx_buffer.append(idx)
-                else: cap.release()
+                else: 
+                    cap.release()
 
             if len(frame_buffer) == BATCH_SIZE or (not cap.isOpened() and len(frame_buffer) > 0):
-                leftover = len(frame_buffer)
-                if leftover < BATCH_SIZE:
-                    inference_buffer = list(frame_buffer)
-                    
-                    # Pad the buffer with the last frame of the existing frames.
-                    padding_needed = BATCH_SIZE - leftover
+                
+                inference_buffer = list(frame_buffer)
+                buffer_size = len(inference_buffer)
+                
+                if buffer_size < BATCH_SIZE:
+                    # Pad the buffer so the GPU gets a consistent batch size
+                    padding_needed = BATCH_SIZE - buffer_size
+                    last_frame = inference_buffer[-1]
                     for _ in range(padding_needed):
-                        inference_buffer.append(inference_buffer[-1])
+                        inference_buffer.append(last_frame)
+                
+                try:
+                    raw_results = asyncio.run(get_detection_res(inference_buffer))
+                    batch_results = raw_results[:buffer_size]
                     
-                    batch_results = model.predict(inference_buffer, threshold=CONFIDENCE_THRESHOLD)
-                    batch_results = batch_results[:leftover]
-                else:  
-                    batch_results = model.predict(frame_buffer, threshold=CONFIDENCE_THRESHOLD)
+                except Exception as e:
+                    print(f"Inference Node Error: {e}")
+                    batch_results = []
                     
                 processed_batch_dets = process_batch_detections(batch_results, [4, 5, 6, 7, 8, 10])
                 

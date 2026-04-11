@@ -12,3 +12,4 @@ class Config:
     S3_PUBLIC_URL = os.environ.get("S3_PUBLIC_URL", None)
     S3_REGION = os.environ.get("AWS_REGION", None)
     BUCKET_NAME = os.environ.get("BUCKET_NAME", None)
+    GPU_SERVER_IP = os.environ.get("GPU_SERVER_IP", None)
