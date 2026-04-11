@@ -11,7 +11,6 @@ from celery import Celery
 from helper import homography, process_batch_detections, assign_state, find_switch_point, is_fully_inframe, get_crop_frame_coords, reid_score_match
 from track import ObjectTracker
 from boxmot import BotSort
-from rfdetr import RFDETRMedium
 from common import TrackState
 from reid import ReIDPredictor
 from upload import UploadVideo
@@ -69,15 +68,6 @@ else:
     DEVICE = torch.device('cpu')
 if DEVICE.type == 'cuda':
     torch.autocast(device_type="cuda", dtype=torch.float16).__enter__()
-
-# Object Detector Initialization
-RFDETR_CHECKPOINT = Config.WEIGHTS_PATH
-print("Loading RF-DETR model...")
-model = RFDETRMedium(pretrain_weights=RFDETR_CHECKPOINT)
-try:
-    model.optimize_for_inference(batch_size=8)
-except AttributeError:
-    pass
 
 reid_model = ReIDPredictor(DEVICE)
 print("Models Ready.")
