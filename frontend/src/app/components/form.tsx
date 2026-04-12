@@ -49,6 +49,7 @@ export default function VideoUploadForm() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const setUpCanvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [activeTool, setActiveTool] = useState<'select' | 'eraser' | 'switch' | 'track' | null>('select');
@@ -385,12 +386,14 @@ export default function VideoUploadForm() {
     const handleClickOutside = (e: MouseEvent) => {
         const target = e.target as HTMLElement;
         
-        // UPDATE: Check if they clicked the wrapper div we just added the ID to
+        // Add safety checks for select and option tags
         if (
             target.closest('#rename-popup') || 
             target.closest('button') || 
             target.closest('input') || 
-            target.closest('canvas')
+            target.closest('canvas') ||
+            target.tagName.toLowerCase() === 'option' ||
+            target.tagName.toLowerCase() === 'select'
         ) {
             return; 
         }
@@ -404,6 +407,29 @@ export default function VideoUploadForm() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    const popup = popupRef.current;
+    if (!popup) return;
+
+    const stopEvent = (e: Event) => {
+      e.stopPropagation();
+    };
+
+    // We attach these in the BUBBLE phase (no 'true' argument).
+    // This allows the <select> to open, but stops the click from reaching the document.
+    popup.addEventListener('mousedown', stopEvent);
+    popup.addEventListener('pointerdown', stopEvent);
+    popup.addEventListener('click', stopEvent);
+    popup.addEventListener('touchstart', stopEvent);
+
+    return () => {
+      popup.removeEventListener('mousedown', stopEvent);
+      popup.removeEventListener('pointerdown', stopEvent);
+      popup.removeEventListener('click', stopEvent);
+      popup.removeEventListener('touchstart', stopEvent);
+    };
+  }, [renamingId]);
 
   // Synchronize Canvas with UI changes
   useEffect(() => {
@@ -999,38 +1025,69 @@ const handleUndo = () => {
                               )}
                           </div>
                       )}
-                      {renamingId && activeTool === 'select' && (
-                              <div 
-                                id="rename-popup" 
-                                onPointerDown={(e) => e.stopPropagation()} 
-                                onClick={(e) => e.stopPropagation()} 
-                                className="absolute z-[9999] pointer-events-auto z-50 bg-white shadow-2xl rounded-lg border-2 border-blue-500 p-1.5 flex items-center transform -translate-x-1/2 -translate-y-[120%]" 
-                                style={{ left: `${renamingId.x}px`, top: `${renamingId.y}px` }}
-                              >
-                                <input 
-                                    autoFocus 
-                                    className="text-sm font-bold px-2 py-1 outline-none w-28 text-center" 
-                                    value={idLabels[renamingId.id] || ''} 
-                                    placeholder={`#${renamingId.id}`} 
-                                    onChange={e => setIdLabels(prev => ({...prev, [renamingId.id]: e.target.value}))} 
-                                    onKeyDown={e => {
-                                      e.stopPropagation();
-                                      if (e.key === 'Enter') {
-                                        const typedValue = idLabels[renamingId.id];
-                                        const parsedNum = Number(typedValue);
-                                        if (!isNaN(parsedNum) && parsedNum !== renamingId.id && allSeenIds.includes(parsedNum)) {
-                                            handleMergeIds(renamingId.id, parsedNum);
-                                        } 
-                                        
-                                        setRenamingId(null);
-                                      }
-                                    }} 
-                                  />
-                                <button onClick={() => setRenamingId(null)} className="p-1 bg-green-100 text-green-700 hover:bg-green-200 rounded-md transition">
-                                  <CheckIcon />
-                                </button>
-                              </div>
-                            )}
+                      {renamingId && (
+                        <div 
+                          id="rename-popup"
+                          className="absolute z-50 bg-white shadow-xl border border-gray-200 p-3 rounded-lg w-56 pointer-events-auto"
+                          style={{ left: renamingId.x, top: renamingId.y }}
+                          // Just standard stoppers to prevent the canvas from stealing the initial click
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <label className="block text-xs font-bold text-gray-800 mb-2">
+                            Rename Track {renamingId.id}
+                          </label>
+
+                          <input 
+                            type="number"
+                            autoFocus
+                            placeholder="Enter target ID..."
+                            className="w-full p-2 border border-gray-300 rounded text-sm outline-none focus:ring-2 focus:ring-blue-500 mb-2 bg-gray-50"
+                            onPointerDown={(e) => e.stopPropagation()} // Let user click inside the box
+                            onKeyDown={(e) => {
+                              e.stopPropagation(); // Stop typing from triggering video hotkeys (like Space to pause)
+                              
+                              if (e.key === 'Enter') {
+                                const newId = parseInt(e.currentTarget.value);
+                                if (isNaN(newId)) return;
+
+                                // --- THE STRONG CHECKERS ---
+                                // 1. Get everything currently visible on screen
+                                const currentFrameDetections = frameDataRef.current.get(currentFrame)?.detections || [];
+                                
+                                // 2. Check if the ID they typed is already on the screen
+                                const isActiveNow = currentFrameDetections.some(d => d.id === newId);
+                                
+                                // 3. The Block: If it's on screen (and isn't the one they are already editing), abort!
+                                if (isActiveNow && newId !== renamingId.id) {
+                                   alert(`CRITICAL: Track ${newId} is already active on this frame.\n\nYou cannot merge into a track that is currently on screen. Please use the Eraser tool to delete Track ${newId}'s bounding box first.`);
+                                   return;
+                                }
+
+                                // If it passes the checks, fire the merge and close the popup
+                                handleMergeIds(renamingId.id, newId);
+                                setRenamingId(null);
+                                setSelectedId(null);
+                              }
+                            }}
+                          />
+
+                          <div className="flex justify-between items-center text-xs text-gray-500 mt-1">
+                            <span>Press <kbd className="bg-gray-200 px-1.5 py-0.5 rounded border border-gray-300 font-mono text-[10px] font-bold text-gray-700">Enter</kbd></span>
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setRenamingId(null);
+                                setSelectedId(null);
+                              }}
+                              className="text-gray-500 hover:text-gray-800 px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded transition-colors"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
                       
                       {/* 2D Radar map */}
                       <div className="absolute bottom-4 right-4 w-1/4 border-2 border-white/40 rounded-lg shadow-2xl overflow-hidden bg-black/40 backdrop-blur-sm z-40 pointer-events-none">
@@ -1045,32 +1102,71 @@ const handleUndo = () => {
                     </VideoPlayer>
                   </div>
 
-                  <div className="mt-2 p-3 bg-white border border-gray-200 rounded-xl flex gap-2 overflow-x-auto shadow-sm items-center min-h-[60px]">
-                      <span className="text-sm font-bold text-gray-500 uppercase tracking-wider mr-2 whitespace-nowrap">Session IDs:</span>
+                  <div className="mt-2 p-3 bg-white border border-gray-200 rounded-xl flex gap-6 overflow-x-auto shadow-sm items-center min-h-[60px]">
                       {allSeenIds.length === 0 ? (
                           <span className="text-sm text-gray-400 italic">No IDs detected yet...</span>
                       ) : (
-                          allSeenIds.filter(id => {
+                          (() => {
+                              // 1. Filter out permanently deleted IDs (your existing logic)
+                              const validIds = allSeenIds.filter(id => {
                                   const deleteFrame = hiddenIds[id];
-                                  // Show the ID in the list if it was never deleted, 
-                                  // or if the video is currently at a frame BEFORE it was deleted
                                   return deleteFrame === undefined || currentFrame < deleteFrame;
-                              })
-                              .map((id) => (
-                                  <button
-                                      key={id}
-                                      // UPDATE: Toggle ID off if clicked again
-                                      onClick={() => setSelectedId(prev => prev === id ? null : id)}
-                                      className={`px-4 py-1.5 rounded-md text-white font-bold text-sm transition-all flex-shrink-0 
-                                          ${selectedId === id ? 'scale-110 ring-2 ring-offset-2 ring-blue-500 shadow-lg' : 'opacity-60 hover:opacity-100'}
-                                          ${frameDataRef.current.get(currentFrame)?.detections.some(d => d.id === id) ? 'opacity-100' : 'grayscale-[0.5]'} 
-                                      `}
-                                      style={{ backgroundColor: COLORS[id % COLORS.length] }}
-                                  >
-                                      {/* UPDATE: Display custom label if it exists, otherwise fallback to #id */}
-                                      {idLabels[id] || `#${id}`}
-                                  </button>
-                              ))
+                              });
+
+                              // 2. Check the current frame to split them into Active vs Inactive
+                              const currentDetections = frameDataRef.current.get(currentFrame)?.detections || [];
+                              const activeIds = validIds.filter(id => currentDetections.some(d => d.id === id));
+                              const inactiveIds = validIds.filter(id => !currentDetections.some(d => d.id === id));
+
+                              return (
+                                  <>
+                                      {/* --- ACTIVE SECTION --- */}
+                                      <div className="flex items-center gap-2">
+                                          <span className="text-xs font-bold text-green-600 uppercase tracking-wider mr-1 whitespace-nowrap">Active:</span>
+                                          {activeIds.length === 0 ? (
+                                              <span className="text-xs text-gray-400 italic mr-2">None</span>
+                                          ) : (
+                                              activeIds.map((id) => (
+                                                  <button
+                                                      key={id}
+                                                      onClick={() => setSelectedId(prev => prev === id ? null : id)}
+                                                      className={`px-4 py-1.5 rounded-md text-white font-bold text-sm transition-all flex-shrink-0 
+                                                          ${selectedId === id ? 'scale-110 ring-2 ring-offset-2 ring-blue-500 shadow-lg' : 'hover:opacity-90 opacity-100'}
+                                                      `}
+                                                      style={{ backgroundColor: COLORS[id % COLORS.length] }}
+                                                  >
+                                                      {idLabels[id] || `#${id}`}
+                                                  </button>
+                                              ))
+                                          )}
+                                      </div>
+
+                                      {/* --- VISUAL DIVIDER --- */}
+                                      <div className="w-px h-8 bg-gray-200 shrink-0"></div>
+
+                                      {/* --- INACTIVE SECTION --- */}
+                                      <div className="flex items-center gap-2">
+                                          <span className="text-xs font-bold text-gray-400 uppercase tracking-wider mr-1 whitespace-nowrap">Inactive:</span>
+                                          {inactiveIds.length === 0 ? (
+                                              <span className="text-xs text-gray-400 italic">None</span>
+                                          ) : (
+                                              inactiveIds.map((id) => (
+                                                  <button
+                                                      key={id}
+                                                      onClick={() => setSelectedId(prev => prev === id ? null : id)}
+                                                      className={`px-4 py-1.5 rounded-md text-white font-bold text-sm transition-all flex-shrink-0 
+                                                          ${selectedId === id ? 'scale-110 ring-2 ring-offset-2 ring-blue-500 shadow-lg' : 'opacity-60 hover:opacity-100 grayscale-[0.5]'}
+                                                      `}
+                                                      style={{ backgroundColor: COLORS[id % COLORS.length] }}
+                                                  >
+                                                      {idLabels[id] || `#${id}`}
+                                                  </button>
+                                              ))
+                                          )}
+                                      </div>
+                                  </>
+                              );
+                          })()
                       )}
                   </div>
                 </div>
