@@ -56,6 +56,7 @@ export default function VideoUploadForm() {
   const [firstSelectedId, setFirstSelectedId] = useState<number | null>(null);
   const [idLabels, setIdLabels] = useState<Record<number, string>>({});
   const [hiddenIds, setHiddenIds] = useState<Record<number, number>>({});
+  const totalFramesRef = useRef<number>(0);
   const [renamingId, setRenamingId] = useState<{id: number, x: number, y: number} | null>(null);
   const [fileUploadProgress, setFileUploadProgress] = useState(0);
   const [lastKnownStates, setLastKnownStates] = useState<Map<number, {bbox: number[], mx: float, my: float}>>(new Map());
@@ -140,6 +141,17 @@ export default function VideoUploadForm() {
     
     return { x, y, scaleX, scaleY, offsetX, offsetY };
   };
+
+  const getCurrentFrameIndex = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) return 0;
+    
+    if (video.duration > 0 && totalFramesRef.current > 0) {
+        const progress = video.currentTime / video.duration;
+        return Math.floor(progress * totalFramesRef.current);
+    }
+    return Math.round(video.currentTime * fpsRef.current);
+  }, []);
 
   // Interpolation
   const handleInterpolate = useCallback((trackId: number, newFrame: number, newBbox: number[]) => {
@@ -238,7 +250,7 @@ export default function VideoUploadForm() {
     setEditHistory(prev => [{ frame: currentFrame, action: 'Track Merged', target: `#${oldId} → #${newId}` }, ...prev]);
     setCorrectionsBatch(prev => [...prev, { action: "MERGE", source_id: oldId, target_id: newId }]);
 
-    if (videoRef.current) drawRef.current(Math.round(videoRef.current.currentTime * fpsRef.current));
+    if (videoRef.current) drawRef.current(getCurrentFrameIndex());
   }, [currentFrame]);
 
   const renderFrameWithSelection = useCallback((frameIndex: number, overrideId: number | null) => {
@@ -355,9 +367,23 @@ export default function VideoUploadForm() {
 
   // Handle Playback/Seeking
   const onVideoFrameCallback = useCallback((now: number, metadata: any) => {
-    if (videoRef.current) drawRef.current(Math.round(metadata.mediaTime * fpsRef.current));
-    if (videoRef.current && 'requestVideoFrameCallback' in videoRef.current) {
-        requestRef.current = (videoRef.current as any).requestVideoFrameCallback(onVideoFrameCallback);
+    const video = videoRef.current;
+    
+    if (video) {
+        let frameIndex;
+
+        if (video.duration > 0 && totalFramesRef.current > 0) {
+            const progress = metadata.mediaTime / video.duration;
+            frameIndex = Math.floor(progress * totalFramesRef.current);
+        } else {
+            frameIndex = Math.round(metadata.mediaTime * fpsRef.current);
+        }
+        frameIndex = getCurrentFrameIndex();
+        drawRef.current(frameIndex);
+    }
+
+    if (video && 'requestVideoFrameCallback' in video) {
+        requestRef.current = (video as any).requestVideoFrameCallback(onVideoFrameCallback);
     }
   }, []);
 
@@ -435,7 +461,7 @@ export default function VideoUploadForm() {
   useEffect(() => {
       const video = videoRef.current;
       if (video && video.paused) {
-          const frameIndex = Math.round(video.currentTime * fpsRef.current);
+          const frameIndex = getCurrentFrameIndex();
           drawRef.current(frameIndex);
       }
   }, [selectedId, hiddenIds, idLabels, activeTool, switchPhase, switchRangeData]);
@@ -451,7 +477,7 @@ export default function VideoUploadForm() {
             return;
         }
         const { x, y, scaleX, scaleY, offsetX, offsetY } = getMousePos(e.clientX, e.clientY, canvas);
-        const frameIndex = Math.round(video.currentTime * fpsRef.current);
+        const frameIndex = getCurrentFrameIndex();
 
         if (activeTool === 'track') {
             isDrawingRef.current = true;
@@ -501,7 +527,7 @@ export default function VideoUploadForm() {
         }
 
         if (activeTool === 'eraser' && clickedId !== null) {
-          const frameIndex = Math.round(videoRef.current!.currentTime * fpsRef.current);
+          const frameIndex = getCurrentFrameIndex();
 
           // Update UI state: Hide this ID ONLY from this frame forward
           setHiddenIds(prev => ({
@@ -601,7 +627,7 @@ export default function VideoUploadForm() {
         const { x, y } = getMousePos(e.clientX, e.clientY, canvas);
         drawCurrentRef.current = { x, y };
         
-        const frameIndex = Math.round(video.currentTime * fpsRef.current);
+        const frameIndex = getCurrentFrameIndex();
         drawRef.current(frameIndex); 
         
         const ctx = canvas.getContext('2d');
@@ -617,7 +643,7 @@ export default function VideoUploadForm() {
     const onPointerUp = (e: PointerEvent) => {
         if (!isDrawingRef.current || activeTool !== 'track') return;
         isDrawingRef.current = false;
-        const frameIndex = Math.round(video.currentTime * fpsRef.current);
+        const frameIndex = getCurrentFrameIndex();
         
         const start = drawStartRef.current;
         const end = drawCurrentRef.current;
@@ -689,7 +715,7 @@ const handleUndo = () => {
 
     setCorrectionsBatch(prev => prev.slice(0, -1));
     setEditHistory(prev => prev.slice(1));
-    if (videoRef.current) drawRef.current(Math.round(videoRef.current.currentTime * fpsRef.current));
+    if (videoRef.current) drawRef.current(getCurrentFrameIndex());
   };
 
   const onSetup = async () => {
@@ -728,7 +754,11 @@ const handleUndo = () => {
       await APIService.analyse(taskIdRef.current, points);
       setStatus("processing"); 
       wsRef.current = APIService.connectToTask(taskIdRef.current, (data) => {
-          if (data.status === "started") fpsRef.current = data.fps ?? 30;
+          if (data.status === "started") {
+            fpsRef.current = data.fps ?? 30;
+            totalFramesRef.current = data.total_frames ?? 0;
+          }
+
           else if (data.status === "processing") {
             setProcessingProgress(data.progress || 0);
             data.frames?.forEach(f => frameDataRef.current.set(f.frame_id, { detections: f.detections, mapped_points: f.mapped_points }));
@@ -753,7 +783,10 @@ const handleUndo = () => {
         setEditHistory([]);
        
         wsRef.current = APIService.connectToTask(taskIdRef.current, (data) => {
-          if (data.status === "started") fpsRef.current = data.fps ?? 30;
+          if (data.status === "started") {
+            fpsRef.current = data.fps ?? 30;
+            totalFramesRef.current = data.total_frames ?? 0;
+          }
           else if (data.status === "processing") {
             setProcessingProgress(data.progress || 0);
             data.frames?.forEach(f => frameDataRef.current.set(f.frame_id, { detections: f.detections, mapped_points: f.mapped_points }));
@@ -762,7 +795,7 @@ const handleUndo = () => {
             setStatus("done"); 
             setProcessingProgress(100); 
             if (videoRef.current && viewMode === 'correction') {
-                drawRef.current(Math.round(videoRef.current.currentTime * fpsRef.current));
+                drawRef.current(getCurrentFrameIndex());
             }
           } else if (data.status === "failed") { 
             console.error("Backend Task Failed:", data.error);
@@ -929,7 +962,7 @@ const handleUndo = () => {
                 <h2 className="text-2xl font-bold border-r border-blue-400 pr-4">Analysis Engine</h2>
                 {viewMode === 'correction' && (
                   <div className="bg-blue-800/60 text-blue-100 px-4 py-1.5 rounded-lg font-mono text-sm font-semibold flex items-center shadow-inner">
-                      FRAME: <span className="ml-2 text-white w-12 text-right">{videoRef.current ? Math.round(videoRef.current.currentTime * fpsRef.current) : 0}</span>
+                      FRAME: <span className="ml-2 text-white w-12 text-right">{videoRef.current ? getCurrentFrameIndex() : 0}</span>
                   </div>
                 )}
             </div>
@@ -945,7 +978,7 @@ const handleUndo = () => {
                 )}
                 
                 <div className="flex gap-1 bg-blue-800/50 p-1 rounded-lg border border-blue-700 shadow-inner">
-                    <button onClick={() => { setViewMode('correction'); if (videoRef.current) drawRef.current(Math.round(videoRef.current.currentTime * fpsRef.current)); }} className={`flex items-center gap-2 px-5 py-2 rounded-md font-bold text-sm transition-all ${viewMode === 'correction' ? 'bg-white text-blue-700 shadow-md' : 'text-blue-100 hover:text-white hover:bg-blue-700/50'}`}>
+                    <button onClick={() => { setViewMode('correction'); if (videoRef.current) drawRef.current(getCurrentFrameIndex()); }} className={`flex items-center gap-2 px-5 py-2 rounded-md font-bold text-sm transition-all ${viewMode === 'correction' ? 'bg-white text-blue-700 shadow-md' : 'text-blue-100 hover:text-white hover:bg-blue-700/50'}`}>
                         <VideoIcon /> Correction
                     </button>
                     <button onClick={() => setViewMode('dashboard')} className={`flex items-center gap-2 px-5 py-2 rounded-md font-bold text-sm transition-all ${viewMode === 'dashboard' ? 'bg-white text-blue-700 shadow-md' : 'text-blue-100 hover:text-white hover:bg-blue-700/50'}`}>
@@ -1007,7 +1040,7 @@ const handleUndo = () => {
                         }
                         startLoop();
                       }}
-                      onSeeked={() => drawRef.current(Math.round(videoRef.current!.currentTime * fpsRef.current))}
+                      onSeeked={() => drawRef.current(getCurrentFrameIndex())}
                       fpsref={fpsRef}
                     >
                       {activeTool === 'switch' && (

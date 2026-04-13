@@ -33,7 +33,7 @@ export interface SwitchRangeCorrection {
 export interface AddTrackCorrection {
     action: "TRACK";
     trackId: number;
-    bboxe: number[][];
+    bboxes: number[][];
     frames: number[];
 }
 
@@ -59,6 +59,7 @@ export type ProcessingStatus = {
     status: "started" | "processing" | "completed" | "failed" | "not_found";
     progress?: number;
     fps?: number;
+    total_frames?: number;
     frames?: Frame[];
     error?: string;
 };
