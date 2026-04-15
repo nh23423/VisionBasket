@@ -277,7 +277,7 @@ export default function VideoUploadForm() {
     frameData.detections.forEach(({ id, bbox, isManualKeyframe, isInterpolated }) => {
       const deleteStartFrame = hiddenIds[id];
       if (deleteStartFrame !== undefined && frameIndex >= deleteStartFrame) {
-          return; // Skip drawing this box
+          return; 
       }
       const [x1, y1, x2, y2] = bbox;
       
@@ -1007,7 +1007,7 @@ const handleUndo = () => {
                   <div className="flex justify-between items-center bg-white p-3 rounded-xl border shadow-sm">
                       <div className="flex gap-2">
                           {[
-                              { id: 'select', icon: <EditIcon />, label: 'Select' },
+                              { id: 'select', icon: <EditIcon />, label: 'Rename' },
                               { id: 'switch', icon: <CheckIcon />, label: 'Switch' },
                               { id: 'eraser', icon: <AlertIcon />, label: 'Erase' },
                               { id: 'track', icon: <TrackIcon />, label: 'Track' }
@@ -1123,7 +1123,7 @@ const handleUndo = () => {
                       )}
                       
                       {/* 2D Radar map */}
-                      <div className="absolute bottom-4 right-4 w-1/4 border-2 border-white/40 rounded-lg shadow-2xl overflow-hidden bg-black/40 backdrop-blur-sm z-40 pointer-events-none">
+                      <div className="absolute top-4 right-4 w-1/4 border-2 border-white/40 rounded-lg shadow-2xl overflow-hidden bg-black/40 backdrop-blur-sm z-40 pointer-events-none">
                         <div className="bg-gray-900/80 text-white text-[10px] uppercase font-bold px-3 py-1.5 flex justify-between items-center tracking-wider border-b border-white/10">
                             <span>Live Radar</span>
                             <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
