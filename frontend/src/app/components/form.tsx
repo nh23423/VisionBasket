@@ -406,6 +406,11 @@ export default function VideoUploadForm() {
     if (activeTool !== 'track') {
         setAddingTrackId(null);
     }
+    // Reset when clicking off
+    if (activeTool !== 'switch') {
+        setSwitchPhase('idle');
+        setSwitchRangeData({ start_state: [], end_state: [] });
+    }
   }, [activeTool]);
 
   useEffect(() => {
