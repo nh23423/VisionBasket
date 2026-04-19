@@ -145,23 +145,26 @@ export default function VideoUploadForm() {
 
   const getCurrentFrameIndex = useCallback(() => {
     const video = videoRef.current;
+
     if (!video) return 0;
 
-    if (video.duration > 0 || Number.isNaN(video.duration))  {
-      throw new Error("Metadata not loaded: video.duration is NaN.");
+    if (Number.isNaN(video.duration) || video.duration === 0) {
+      return 1; 
     }
 
-    const framesData = totalFramesRef.current;
-    if (framesData === undefined || framesData === 0) {
-      throw new Error("totalFramesRef.current is undefined or null.");
+    const totalFrames = totalFramesRef.current;
+    if (!totalFrames || totalFrames <= 0) {
+      return 2; 
     }
     
-    if (video.duration > 0 && totalFramesRef.current > 0) {
-      const progress = video.currentTime / video.duration;
-      return Math.floor(progress * totalFramesRef.current);
+    const progress = video.currentTime / video.duration;
+    let frameIndex = Math.floor(progress * totalFrames);
+
+    if (frameIndex >= totalFrames) {
+        frameIndex = totalFrames - 1;
     }
 
-    // return Math.round(video.currentTime * fpsRef.current);
+    return Math.max(0, frameIndex);
   }, []);
 
   // Interpolation
