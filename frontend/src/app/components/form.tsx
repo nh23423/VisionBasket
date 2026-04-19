@@ -149,12 +149,12 @@ export default function VideoUploadForm() {
     if (!video) return 0;
 
     if (Number.isNaN(video.duration) || video.duration === 0) {
-      return 1; 
+      return 0; 
     }
 
     const totalFrames = totalFramesRef.current;
     if (!totalFrames || totalFrames <= 0) {
-      return 2; 
+      return 0; 
     }
     
     const progress = video.currentTime / video.duration;
