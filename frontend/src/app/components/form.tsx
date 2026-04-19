@@ -151,13 +151,11 @@ export default function VideoUploadForm() {
       return 0;
     }
 
-    // Guard 2: Metadata not loaded
     if (Number.isNaN(video.duration) || video.duration === 0) {
       console.warn(`[Frame Index] Guard 2: video.duration is invalid (${video.duration}). Waiting for metadata. Returning 0.`);
       return 0; 
     }
 
-    // Guard 3: API data for total frames is missing
     const totalFrames = totalFramesRef.current;
     if (!totalFrames || totalFrames <= 0) {
       console.warn(`[Frame Index] Guard 3: totalFramesRef is invalid (${totalFrames}). Returning 0.`);
@@ -784,6 +782,7 @@ const handleUndo = () => {
       setStatus("processing"); 
       wsRef.current = APIService.connectToTask(taskIdRef.current, (data) => {
           if (data.status === "started") {
+            console.log("🟢 [WebSocket STARTED] Raw payload received:", data);
             fpsRef.current = data.fps ?? 30;
             totalFramesRef.current = data.total_frames ?? 0;
           }
