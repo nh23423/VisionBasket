@@ -791,9 +791,12 @@ const handleUndo = () => {
             console.log(`🔵 [WebSocket PROCESSING] Progress: ${data.progress || 0}%`);
             setProcessingProgress(data.progress || 0);
             data.frames?.forEach(f => frameDataRef.current.set(f.frame_id, { detections: f.detections, mapped_points: f.mapped_points }));
+            totalFramesRef.current = data.total_frames ?? 0;
           } else if (data.status === "completed") { 
             console.log("✅ [WebSocket COMPLETED] Analysis task finished successfully.");
-            wsRef.current?.close(); setStatus("done"); }
+            wsRef.current?.close(); setStatus("done"); 
+            totalFramesRef.current = data.total_frames ?? 0;
+          }
         }, () => setStatus("idle"));
     } catch (err) { setStatus("idle"); }
   };
