@@ -146,11 +146,11 @@ export default function VideoUploadForm() {
     const video = videoRef.current;
     if (!video) return 0;
     
-    if (video.duration > 0 && totalFramesRef.current > 0) {
-        const progress = video.currentTime / video.duration;
-        return Math.floor(progress * totalFramesRef.current);
-    }
-    return Math.round(video.currentTime * fpsRef.current);
+    // if (video.duration > 0 && totalFramesRef.current > 0) {
+    const progress = video.currentTime / video.duration;
+    return Math.floor(progress * totalFramesRef.current);
+    // }
+    // return Math.round(video.currentTime * fpsRef.current);
   }, []);
 
   // Interpolation
@@ -652,8 +652,10 @@ export default function VideoUploadForm() {
         
         const start = drawStartRef.current;
         const end = drawCurrentRef.current;
-        const x1 = Math.min(start.x, end.x); const y1 = Math.min(start.y, end.y);
-        const x2 = Math.max(start.x, end.x); const y2 = Math.max(start.y, end.y);
+        const x1 = Math.min(start.x, end.x); 
+        const y1 = Math.min(start.y, end.y);
+        const x2 = Math.max(start.x, end.x); 
+        const y2 = Math.max(start.y, end.y);
         
         // Check if the box is a valid size
         if (x2 - x1 > 15 && y2 - y1 > 15) { 
