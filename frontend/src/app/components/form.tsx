@@ -50,6 +50,7 @@ export default function VideoUploadForm() {
   const setUpCanvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
+  const [isVideoLoaded, setIsVideoLoaded] = useState(false);
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [activeTool, setActiveTool] = useState<'select' | 'eraser' | 'switch' | 'track' | null>('select');
@@ -472,14 +473,15 @@ export default function VideoUploadForm() {
     };
   }, [renamingId]);
 
-  // Synchronize Canvas with UI changes
+
   useEffect(() => {
-      const video = videoRef.current;
-      if (video && video.paused) {
-          const frameIndex = getCurrentFrameIndex();
-          drawRef.current(frameIndex);
-      }
-  }, [selectedId, hiddenIds, idLabels, activeTool, switchPhase, switchRangeData]);
+    const video = videoRef.current;
+    if (video && video.paused && isVideoLoaded) {
+        const frameIndex = getCurrentFrameIndex();
+        drawRef.current(frameIndex);
+    }
+
+  }, [selectedId, hiddenIds, idLabels, activeTool, switchPhase, switchRangeData, isVideoLoaded]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -979,7 +981,7 @@ const handleUndo = () => {
                 <h2 className="text-2xl font-bold border-r border-blue-400 pr-4">Analysis Engine</h2>
                 {viewMode === 'correction' && (
                   <div className="bg-blue-800/60 text-blue-100 px-4 py-1.5 rounded-lg font-mono text-sm font-semibold flex items-center shadow-inner">
-                      FRAME: <span className="ml-2 text-white w-12 text-right">{videoRef.current ? getCurrentFrameIndex() : 0}</span>
+                      FRAME: <span className="ml-2 text-white w-12 text-right">{isVideoLoaded ? getCurrentFrameIndex() : 0}</span>
                   </div>
                 )}
             </div>
@@ -1048,6 +1050,7 @@ const handleUndo = () => {
                       onLoadedMetadata={e => { 
                         canvasRef.current!.width = e.currentTarget.videoWidth; 
                         canvasRef.current!.height = e.currentTarget.videoHeight; 
+                        setIsVideoLoaded(true);
                         startLoop(); 
                       }}
                       onPlay={(e) => {
