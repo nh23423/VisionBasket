@@ -146,14 +146,21 @@ export default function VideoUploadForm() {
   const getCurrentFrameIndex = useCallback(() => {
     const video = videoRef.current;
 
-    if (!video) return 0;
+    if (!video) {
+      console.warn("[Frame Index] Guard 1: videoRef.current is null or undefined. Returning 0.");
+      return 0;
+    }
 
+    // Guard 2: Metadata not loaded
     if (Number.isNaN(video.duration) || video.duration === 0) {
+      console.warn(`[Frame Index] Guard 2: video.duration is invalid (${video.duration}). Waiting for metadata. Returning 0.`);
       return 0; 
     }
 
+    // Guard 3: API data for total frames is missing
     const totalFrames = totalFramesRef.current;
     if (!totalFrames || totalFrames <= 0) {
+      console.warn(`[Frame Index] Guard 3: totalFramesRef is invalid (${totalFrames}). Returning 0.`);
       return 0; 
     }
     
