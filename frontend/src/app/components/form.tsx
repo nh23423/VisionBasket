@@ -146,10 +146,10 @@ export default function VideoUploadForm() {
     const video = videoRef.current;
     if (!video) return 0;
     
-    // if (video.duration > 0 && totalFramesRef.current > 0) {
-    const progress = video.currentTime / video.duration;
-    return Math.floor(progress * totalFramesRef.current);
-    // }
+    if (video.duration > 0 && totalFramesRef.current > 0) {
+      const progress = video.currentTime / video.duration;
+      return Math.floor(progress * totalFramesRef.current);
+    }
     // return Math.round(video.currentTime * fpsRef.current);
   }, []);
 
