@@ -38,48 +38,114 @@ export default function Dashboard ({
         return Array.from(ids).sort((a, b) => a - b);
     }, [status, processingProgress, hiddenIds, frameDataRef]);
 
+    // const chartData = useMemo(() => {
+    //     if (dashboardId === null || frameDataRef.current.size === 0) return [];
+    //     const data: any[] = [];
+    //     let cumulativeDistance = 0;
+    //     let lastPos: [number, number] | null = null;
+    //     const fps = fpsRef.current || 30;
+    //     const PIXELS_TO_METERS = 28.65 / 1740; 
+    //     const sortedFrames = Array.from(frameDataRef.current.keys()).sort((a, b) => a - b);
+    //     const smoothingWindow = Math.max(1, Math.floor(fps / 3)); 
+    //     let windowQueue: {pos: [number, number], time: number}[] = [];
+        
+    //     sortedFrames.forEach((frame) => {
+    //         const frameData = frameDataRef.current.get(frame);
+    //         if (!frameData) return;
+    //         const detIndex = frameData.detections.findIndex(d => d.id === dashboardId);
+    //         if (frameData.mapped_points[detIndex]) {
+    //             const pos = frameData.mapped_points[detIndex];
+    //             const timeInSeconds = frame / fps;
+    //             if (lastPos) {
+    //                 const pixelDist = Math.sqrt(Math.pow(pos[0] - lastPos[0], 2) + Math.pow(pos[1] - lastPos[1], 2));
+    //                 cumulativeDistance += (pixelDist * PIXELS_TO_METERS);
+    //             }
+    //             windowQueue.push({pos, time: timeInSeconds});
+    //             if (windowQueue.length > smoothingWindow) windowQueue.shift(); 
+    //             if (windowQueue.length > 1) {
+    //                 const oldest = windowQueue[0];
+    //                 const newest = windowQueue[windowQueue.length - 1];
+    //                 const windowPixelDist = Math.sqrt(Math.pow(newest.pos[0] - oldest.pos[0], 2) + Math.pow(newest.pos[1] - oldest.pos[1], 2));
+    //                 const timeDiff = newest.time - oldest.time;
+    //                 const currentSpeed = timeDiff > 0 ? (windowPixelDist * PIXELS_TO_METERS / timeDiff) : 0;
+                    
+    //                 if (frame % Math.max(1, Math.floor(fps / 3)) === 0) {
+    //                     data.push({
+    //                         time: Number(timeInSeconds.toFixed(1)),
+    //                         distance: Number(cumulativeDistance.toFixed(2)),
+    //                         speed: Number(currentSpeed.toFixed(2)),
+    //                         pos: pos
+    //                     });
+    //                 }
+    //             }
+    //             lastPos = pos;
+    //         }
+    //     });
+    //     return data;
+    // }, [dashboardId, status, processingProgress, frameDataRef, fpsRef]);
+
     const chartData = useMemo(() => {
         if (dashboardId === null || frameDataRef.current.size === 0) return [];
         const data: any[] = [];
         let cumulativeDistance = 0;
-        let lastPos: [number, number] | null = null;
+
         const fps = fpsRef.current || 30;
-        const PIXELS_TO_METERS = 28.65 / 1740; 
-        const sortedFrames = Array.from(frameDataRef.current.keys()).sort((a, b) => a - b);
-        const smoothingWindow = Math.max(1, Math.floor(fps / 3)); 
-        let windowQueue: {pos: [number, number], time: number}[] = [];
+        const PIXELS_TO_METERS = 28.65 / 1740;
+        const sortedFrames = Array.from(frameDataRef.current.keys()).sort((a, b) => a - b); 
         
+        const posAlpha = 0.3;   
+        const speedAlpha = 0.2;
+
+        let smoothedPos = null;
+        let smoothedSpeed = 0;
+        let lastTime = null;
+
         sortedFrames.forEach((frame) => {
             const frameData = frameDataRef.current.get(frame);
             if (!frameData) return;
+
             const detIndex = frameData.detections.findIndex(d => d.id === dashboardId);
+
             if (frameData.mapped_points[detIndex]) {
-                const pos = frameData.mapped_points[detIndex];
+                const rawPos = frameData.mapped_points[detIndex];
                 const timeInSeconds = frame / fps;
-                if (lastPos) {
-                    const pixelDist = Math.sqrt(Math.pow(pos[0] - lastPos[0], 2) + Math.pow(pos[1] - lastPos[1], 2));
-                    cumulativeDistance += (pixelDist * PIXELS_TO_METERS);
-                }
-                windowQueue.push({pos, time: timeInSeconds});
-                if (windowQueue.length > smoothingWindow) windowQueue.shift(); 
-                if (windowQueue.length > 1) {
-                    const oldest = windowQueue[0];
-                    const newest = windowQueue[windowQueue.length - 1];
-                    const windowPixelDist = Math.sqrt(Math.pow(newest.pos[0] - oldest.pos[0], 2) + Math.pow(newest.pos[1] - oldest.pos[1], 2));
-                    const timeDiff = newest.time - oldest.time;
-                    const currentSpeed = timeDiff > 0 ? (windowPixelDist * PIXELS_TO_METERS / timeDiff) : 0;
+
+                if (!smoothedPos) {
+                    smoothedPos = [rawPos[0], rawPos[1]];
+                    lastTime = timeInSeconds;
+                } else {
+                    const prevSmoothedPos = [...smoothedPos];
+
+                    smoothedPos[0] = (posAlpha * rawPos[0]) + ((1 - posAlpha) * prevSmoothedPos[0]);
+                    smoothedPos[1] = (posAlpha * rawPos[1]) + ((1 - posAlpha) * prevSmoothedPos[1]);
+
+                    const pixelDist = Math.sqrt(
+                        Math.pow(smoothedPos[0] - prevSmoothedPos[0], 2) + 
+                        Math.pow(smoothedPos[1] - prevSmoothedPos[1], 2)
+                    );
                     
+                    const realDist = pixelDist * PIXELS_TO_METERS;
+                    cumulativeDistance += realDist;
+
+                    const timeDiff = timeInSeconds - lastTime;
+
+                    const instantSpeed = timeDiff > 0 ? (realDist / timeDiff) : 0;
+
+                    smoothedSpeed = (speedAlpha * instantSpeed) + ((1 - speedAlpha) * smoothedSpeed);
+
                     if (frame % Math.max(1, Math.floor(fps / 3)) === 0) {
                         data.push({
                             time: Number(timeInSeconds.toFixed(1)),
                             distance: Number(cumulativeDistance.toFixed(2)),
-                            speed: Number(currentSpeed.toFixed(2)),
-                            pos: pos
+                            speed: Number(smoothedSpeed.toFixed(2)),
+                            pos: smoothedPos // We pass the smoothed pos to the heatmap too!
                         });
                     }
+                    
+                    lastTime = timeInSeconds;
                 }
-                lastPos = pos;
             }
+
         });
         return data;
     }, [dashboardId, status, processingProgress, frameDataRef, fpsRef]);
