@@ -138,7 +138,7 @@ export default function Dashboard ({
                             time: Number(timeInSeconds.toFixed(1)),
                             distance: Number(cumulativeDistance.toFixed(2)),
                             speed: Number(smoothedSpeed.toFixed(2)),
-                            pos: smoothedPos // We pass the smoothed pos to the heatmap too!
+                            pos: [...smoothedPos] // We pass the smoothed pos to the heatmap too!
                         });
                     }
                     
